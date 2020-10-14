@@ -1,0 +1,21 @@
+{
+  "name": "flamincome-finance",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "cross-env NODE_ENV=production webpack --mode production --progress --color"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bignumber.js": "^9.0.1",
+    "cross-env": "^7.0.2",
+    "number-to-bn": "^1.7.0"
+  },
+  "devDependencies": {
+    "webpack": "^4.44.2",
+    "webpack-cli": "^3.3.12"
+  }
+}
