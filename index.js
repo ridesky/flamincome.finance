@@ -1,7 +1,7 @@
 import { depositFTokenCalculate, decimalToInteger } from "./utils/calculate"
-import liquidity from "./utils/liquidity"
 
-const FLC = "0xacbf975b303aa79e111c4c9cdeb11ffdb2a84e26" // flamincome address
+const UNISWAP_V2_ROUTER_02_ADDRESS =
+	"0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
 
 window.flamincome = {
 	__init__: function () {
@@ -32,6 +32,15 @@ window.flamincome = {
 			.then((resp) => resp.text())
 			.then((text) => {
 				flamincome.__abi__.erc20 = JSON.parse(text)
+			})
+			.catch((err) => {
+				console.log(err)
+				setTimeout(flamincome.__init__, 1000)
+			})
+		fetch("./utils/uniswap.v2.json")
+			.then((resp) => resp.text())
+			.then((text) => {
+				flamincome.__abi__.uniswap_v2 = JSON.parse(text)
 			})
 			.catch((err) => {
 				console.log(err)
@@ -283,6 +292,12 @@ window.flamincome = {
 			throw { message: `canout find registry '${symbol}'` }
 		}
 		return new web3.eth.Contract(flamincome.__abi__.vault_baseline, vault)
+	},
+	__get_uniswap__: function () {
+		return new web3.eth.Contract(
+			flamincome.__abi__.uniswap_v2,
+			UNISWAP_V2_ROUTER_02_ADDRESS
+		)
 	},
 	__get_liquidity_by_symbol__: function (symbol) {
 		let liquidity = flamincome.__registry__.liquidity[symbol]
@@ -1102,9 +1117,7 @@ $(document).ready(function () {
 					allowance = new web3.utils.BN(vals[2])
 
 					if (allowance.cmp(num) === -1) {
-						console.log("111")
 						if (allowance > 0) {
-							console.log("222")
 							flamincome.__transaction__(
 								liquidityContract.methods
 									.approve(stakingContract._address, 0)
@@ -1130,9 +1143,6 @@ $(document).ready(function () {
 							return
 						}
 						// else if allowance  === 0
-						console.log("begin")
-						console.log("liquidityContract.methods is")
-						console.log(liquidityContract.methods)
 						flamincome.__transaction__(
 							liquidityContract.methods
 								.approve(
@@ -1169,11 +1179,11 @@ $(document).ready(function () {
 		(cmd) => {
 			const symbol = cmd[1]
 			const amount = cmd[2]
-			if (!amount) {
-				flamincome.__display__("The second parameter of amount is missing")
-				flamincome.__done__()
-			}
 			flamincome.__before__(async () => {
+				if (!amount) {
+					flamincome.__display__("Missing params")
+					flamincome.__done__()
+				}
 				flamincome.__check_connection__()
 				const liquidityContract = flamincome.__get_liquidity_by_symbol__(symbol)
 				const stakingContract = flamincome.__get_staking_by_symbol__(symbol)
@@ -1209,6 +1219,87 @@ $(document).ready(function () {
 				flamincome.__display__(error.message)
 				flamincome.__done__()
 			}
+		})
+	})
+	flamincome.__register__("add-liquidity", "add liquidity", (cmd) => {
+		const symbol = cmd[1]
+		const amount = cmd[2]
+		flamincome.__before__(() => {
+			if (!amount) {
+				flamincome.__display__("Missing params")
+				flamincome.__done__()
+			}
+			flamincome.__check_connection__()
+			const uniswapContract = flamincome.__get_uniswap__()
+			const erc20Contract = flamincome.__get_erc20_by_symbol__(symbol)
+			const normalizerContract = flamincome.__get_normalizer_by_symbol__(symbol)
+			let erc20Allowance = erc20Contract.methods
+				.allowance(flamincome.__account__, UNISWAP_V2_ROUTER_02_ADDRESS)
+				.call()
+			let normalizerAllowance = normalizerContract.methods
+				.allowance(flamincome.__account__, UNISWAP_V2_ROUTER_02_ADDRESS)
+				.call()
+			let decimals = erc20Contract.methods.decimals().call()
+			Promise.all([erc20Allowance, normalizerAllowance, decimals])
+				.then(async (vals) => {
+					erc20Allowance = new web3.utils.BN(vals[0])
+					normalizerAllowance = new web3.utils.BN(vals[1])
+					decimals = Number(vals[2])
+					let num = decimalToInteger(amount, decimals)
+					num = new web3.utils.BN(num)
+					if (erc20Allowance.cmp(num) === -1) {
+						if (erc20Allowance > 0) {
+							await erc20Contract.methods
+								.approve(UNISWAP_V2_ROUTER_02_ADDRESS, 0)
+								.send({ from: flamincome.__account__ })
+						}
+						await erc20Contract.methods
+							.approve(
+								UNISWAP_V2_ROUTER_02_ADDRESS,
+								new web3.utils.BN(2).pow(new web3.utils.BN(256)).subn(1)
+							)
+							.send({ from: flamincome.__account__ })
+					}
+					if (normalizerAllowance.cmp(num) === -1) {
+						if (normalizerAllowance > 0) {
+							await normalizerContract.methods
+								.approve(UNISWAP_V2_ROUTER_02_ADDRESS, 0)
+								.send({ from: flamincome.__account__ })
+						}
+						await normalizerContract.methods
+							.approve(
+								UNISWAP_V2_ROUTER_02_ADDRESS,
+								new web3.utils.BN(2).pow(new web3.utils.BN(256)).subn(1)
+							)
+							.send({ from: flamincome.__account__ })
+					}
+					const erc20Address = flamincome.__registry__.erc20[symbol]
+					const normalizerAddress = flamincome.__registry__.normalizer[symbol]
+					console.log(`erc20Address is ${erc20Address}`)
+					console.log(`normalizerAddress is ${normalizerAddress}`)
+					console.log(`num is ${num.toString()}`)
+					console.log("flamincome.__account__ is")
+					console.log(flamincome.__account__)
+					flamincome.__transaction__(
+						uniswapContract.methods
+							.addLiquidity(
+								erc20Address,
+								normalizerAddress,
+								num,
+								num,
+								0,
+								0,
+								flamincome.__account__,
+								Date.now()
+							)
+							.send({ from: flamincome.__account__ })
+					)
+				})
+				.catch((err) => {
+					flamincome.__display__(err.message)
+					console.error(err)
+					flamincome.__done__()
+				})
 		})
 	})
 })
