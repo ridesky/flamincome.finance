@@ -1,4 +1,7 @@
-import { depositFTokenCalculate, decimalToInteger } from "./utils/calculate"
+import { depositFTokenCalculate, decimalToInteger } from "@/utils/calculate"
+import reward from '@/utils/reward'
+
+const FLC = "0xacbf975b303aa79e111c4c9cdeb11ffdb2a84e26" // flamincome address
 
 window.flamincome = {
 	__init__: function () {
@@ -999,4 +1002,10 @@ $(document).ready(function () {
 			})
 		}
 	)
+	flamincome.__register__('stake-lptoken', 'stake lptoken',(cmd)=>{
+		flamincome.__before__(()=>{
+			flamincome.__check_connection__()
+
+		})
+	})
 })
