@@ -1,5 +1,5 @@
-import { depositFTokenCalculate, decimalToInteger } from "@/utils/calculate"
-import reward from '@/utils/reward'
+import { depositFTokenCalculate, decimalToInteger } from "./utils/calculate"
+import liquidity from "./utils/liquidity"
 
 const FLC = "0xacbf975b303aa79e111c4c9cdeb11ffdb2a84e26" // flamincome address
 
@@ -32,6 +32,24 @@ window.flamincome = {
 			.then((resp) => resp.text())
 			.then((text) => {
 				flamincome.__abi__.erc20 = JSON.parse(text)
+			})
+			.catch((err) => {
+				console.log(err)
+				setTimeout(flamincome.__init__, 1000)
+			})
+		fetch("./utils/liquidity.provider.json")
+			.then((resp) => resp.text())
+			.then((text) => {
+				flamincome.__abi__.liquidity_provider = JSON.parse(text)
+			})
+			.catch((err) => {
+				console.log(err)
+				setTimeout(flamincome.__init__, 1000)
+			})
+		fetch("./utils/staking.pool.json")
+			.then((resp) => resp.text())
+			.then((text) => {
+				flamincome.__abi__.staking_pool = JSON.parse(text)
 			})
 			.catch((err) => {
 				console.log(err)
@@ -70,6 +88,24 @@ window.flamincome = {
 			.then((resp) => resp.text())
 			.then((text) => {
 				flamincome.__registry__.vault = JSON.parse(text)
+			})
+			.catch((err) => {
+				console.log(err)
+				setTimeout(flamincome.__init__, 1000)
+			})
+		fetch("./utils/liquidity.json")
+			.then((resp) => resp.text())
+			.then((text) => {
+				flamincome.__registry__.liquidity = JSON.parse(text)
+			})
+			.catch((err) => {
+				console.log(err)
+				setTimeout(flamincome.__init__, 1000)
+			})
+		fetch("./utils/staking.json")
+			.then((resp) => resp.text())
+			.then((text) => {
+				flamincome.__registry__.staking = JSON.parse(text)
 			})
 			.catch((err) => {
 				console.log(err)
@@ -146,6 +182,26 @@ window.flamincome = {
 		}
 		if (flamincome.__registry__.normalizer == null) {
 			flamincome.__display__("loading registry.normalizer ...")
+			setTimeout(() => flamincome.__before__(f), 1000)
+			return
+		}
+		if (flamincome.__registry__.liquidity == null) {
+			flamincome.__display__("loading registry.liquidity ...")
+			setTimeout(() => flamincome.__before__(f), 1000)
+			return
+		}
+		if (flamincome.__registry__.staking == null) {
+			flamincome.__display__("loading registry.staking ...")
+			setTimeout(() => flamincome.__before__(f), 1000)
+			return
+		}
+		if (flamincome.__abi__.staking_pool == null) {
+			flamincome.__display__("loading abi.staking_pool ...")
+			setTimeout(() => flamincome.__before__(f), 1000)
+			return
+		}
+		if (flamincome.__abi__.liquidity_provider == null) {
+			flamincome.__display__("loading abi.liquidity_provider ...")
 			setTimeout(() => flamincome.__before__(f), 1000)
 			return
 		}
@@ -227,6 +283,23 @@ window.flamincome = {
 			throw { message: `canout find registry '${symbol}'` }
 		}
 		return new web3.eth.Contract(flamincome.__abi__.vault_baseline, vault)
+	},
+	__get_liquidity_by_symbol__: function (symbol) {
+		let liquidity = flamincome.__registry__.liquidity[symbol]
+		if (!liquidity) {
+			throw { message: `canout find registry '${symbol}'` }
+		}
+		return new web3.eth.Contract(
+			flamincome.__abi__.liquidity_provider,
+			liquidity
+		)
+	},
+	__get_staking_by_symbol__: function (symbol) {
+		let staking = flamincome.__registry__.staking[symbol]
+		if (!staking) {
+			throw { message: `canout find registry '${symbol}'` }
+		}
+		return new web3.eth.Contract(flamincome.__abi__.staking_pool, staking)
 	},
 	__get_normalizer_by_symbol__: function (symbol) {
 		let normalizer = flamincome.__registry__.normalizer[symbol]
@@ -1002,10 +1075,140 @@ $(document).ready(function () {
 			})
 		}
 	)
-	flamincome.__register__('stake-lptoken', 'stake lptoken',(cmd)=>{
-		flamincome.__before__(()=>{
+	flamincome.__register__("stake-lp-token", "stake liquidity token", (cmd) => {
+		const symbol = cmd[1]
+		const amount = cmd[2]
+		flamincome.__before__(() => {
 			flamincome.__check_connection__()
+			const liquidityContract = flamincome.__get_liquidity_by_symbol__(symbol)
+			const stakingContract = flamincome.__get_staking_by_symbol__(symbol)
+			let allowance = liquidityContract.methods
+				.allowance(flamincome.__account__, stakingContract._address)
+				.call()
+			let balanceOf = liquidityContract.methods
+				.balanceOf(flamincome.__account__)
+				.call()
+			let decimals = liquidityContract.methods.decimals().call()
+			Promise.all([balanceOf, decimals, allowance])
+				.then((vals) => {
+					balanceOf = vals[0]
+					decimals = vals[1]
+					decimals = Number(decimals)
+					let num = balanceOf
+					if (amount) {
+						num = decimalToInteger(amount, decimals)
+					}
+					num = new web3.utils.BN(num)
+					allowance = new web3.utils.BN(vals[2])
 
+					if (allowance.cmp(num) === -1) {
+						console.log("111")
+						if (allowance > 0) {
+							console.log("222")
+							flamincome.__transaction__(
+								liquidityContract.methods
+									.approve(stakingContract._address, 0)
+									.send({ from: flamincome.__account__ }),
+								function () {
+									flamincome.__transaction__(
+										liquidityContract.methods
+											.approve(
+												stakingContract._address,
+												new web3.utils.BN(2).pow(new web3.utils.BN(256)).subn(1)
+											)
+											.send({ from: flamincome.__account__ }),
+										function () {
+											flamincome.__transaction__(
+												stakingContract.methods
+													.stake(num)
+													.send({ from: flamincome.__account__ })
+											)
+										}
+									)
+								}
+							)
+							return
+						}
+						// else if allowance  === 0
+						console.log("begin")
+						console.log("liquidityContract.methods is")
+						console.log(liquidityContract.methods)
+						flamincome.__transaction__(
+							liquidityContract.methods
+								.approve(
+									stakingContract._address,
+									new web3.utils.BN(2).pow(new web3.utils.BN(256)).subn(1)
+								)
+								.send({ from: flamincome.__account__ }),
+							function () {
+								flamincome.__transaction__(
+									stakingContract.methods
+										.stake(num)
+										.send({ from: flamincome.__account__ })
+								)
+							}
+						)
+						return
+					}
+					// if you have approved enough lptoken of yours
+					flamincome.__transaction__(
+						stakingContract.methods
+							.stake(num)
+							.send({ from: flamincome.__account__ })
+					)
+				})
+				.catch((err) => {
+					flamincome.__display__(err.message)
+					flamincome.__done__()
+				})
+		})
+	})
+	flamincome.__register__(
+		"withdraw-lp-token",
+		"withdraw liquidity token",
+		(cmd) => {
+			const symbol = cmd[1]
+			const amount = cmd[2]
+			if (!amount) {
+				flamincome.__display__("The second parameter of amount is missing")
+				flamincome.__done__()
+			}
+			flamincome.__before__(async () => {
+				flamincome.__check_connection__()
+				const liquidityContract = flamincome.__get_liquidity_by_symbol__(symbol)
+				const stakingContract = flamincome.__get_staking_by_symbol__(symbol)
+				try {
+					let decimals = await liquidityContract.methods.decimals().call()
+					decimals = Number(decimals)
+					let num = decimalToInteger(amount, decimals)
+					flamincome.__transaction__(
+						stakingContract.methods
+							.withdraw(num)
+							.send({ from: flamincome.__account__ })
+					)
+				} catch (error) {
+					flamincome.__display__(err.message)
+					flamincome.__done__()
+					console.error(err)
+				}
+			})
+		}
+	)
+	flamincome.__register__("get-reward", "get reward", (cmd) => {
+		flamincome.__before__(() => {
+			flamincome.__check_connection__()
+			try {
+				const symbol = cmd[1]
+				const stakingContract = flamincome.__get_staking_by_symbol__(symbol)
+				flamincome.__transaction__(
+					stakingContract.methods
+						.getReward()
+						.send({ from: flamincome.__account__ })
+				)
+			} catch (error) {
+				flamincome.__display__(error.message)
+				flamincome.__done__()
+			}
 		})
 	})
 })
